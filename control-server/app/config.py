@@ -6,12 +6,12 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://localhost/accessbot"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-ADMIN_IDS = [
-    123456789
-]
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN missing")
+
+
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL missing")
