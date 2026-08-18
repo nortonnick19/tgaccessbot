@@ -1,0 +1,22 @@
+[Unit]
+Description=TG Access Control Telegram Bot
+After=network.target
+
+
+[Service]
+Type=simple
+
+User=root
+
+WorkingDirectory=/opt/tgaccessbot/control-server/app
+
+Environment="PATH=/opt/tgaccessbot/control-server/venv/bin"
+
+ExecStart=/opt/tgaccessbot/control-server/venv/bin/python3 telegram_bot.py
+
+Restart=always
+RestartSec=5
+
+
+[Install]
+WantedBy=multi-user.target

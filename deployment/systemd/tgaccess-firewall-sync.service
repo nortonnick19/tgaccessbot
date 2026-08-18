@@ -1,0 +1,17 @@
+[Unit]
+Description=TG Access Firewall Sync
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+
+WorkingDirectory=/opt/tgaccessbot/control-server
+
+ExecStart=/opt/tgaccessbot/control-server/venv/bin/python3 /opt/tgaccessbot/control-server/app/scripts/sync_firewall.py
+
+Environment="PYTHONPATH=/opt/tgaccessbot/control-server/app"
+
+User=root
+
+[Install]
+WantedBy=multi-user.target
