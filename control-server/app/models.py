@@ -16,9 +16,6 @@ from sqlalchemy.orm import relationship
 from database import Base
 
 
-# =====================================
-# Servers
-# =====================================
 
 class Server(Base):
 
@@ -36,8 +33,8 @@ class Server(Base):
 
     domain = Column(
         String(255),
-        nullable=False,
-        unique=True
+        unique=True,
+        nullable=False
     )
 
     ip = Column(
@@ -45,16 +42,26 @@ class Server(Base):
         nullable=False
     )
 
+    public_ip = Column(
+        String(45)
+    )
+
+    rdp_port = Column(
+        Integer
+    )
+
+    ipset_name = Column(
+        String(100)
+    )
+
     active = Column(
         Boolean,
-        default=True,
-        nullable=False
+        default=True
     )
 
     created_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        nullable=False
+        default=datetime.utcnow
     )
 
 
@@ -63,12 +70,10 @@ class Server(Base):
         back_populates="server"
     )
 
-
     whitelist = relationship(
         "Whitelist",
         back_populates="server"
     )
-
 
     logs = relationship(
         "AuditLog",
@@ -76,18 +81,18 @@ class Server(Base):
     )
 
 
-# =====================================
-# Telegram Users / Admins
-# =====================================
+
 
 class User(Base):
 
     __tablename__ = "users"
 
+
     id = Column(
         Integer,
         primary_key=True
     )
+
 
     telegram_id = Column(
         String(50),
@@ -95,18 +100,17 @@ class User(Base):
         nullable=False
     )
 
+
     username = Column(
         String(100)
     )
 
-    full_name = Column(
-        String(200)
-    )
 
     role = Column(
         String(50),
         default="ADMIN"
     )
+
 
     active = Column(
         Boolean,
@@ -114,15 +118,7 @@ class User(Base):
     )
 
 
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow
-    )
 
-
-# =====================================
-# Access Requests
-# =====================================
 
 class AccessRequest(Base):
 
@@ -146,7 +142,7 @@ class AccessRequest(Base):
 
     username = Column(
         String(100),
-        nullable=False
+        default="unknown"
     )
 
 
@@ -156,9 +152,19 @@ class AccessRequest(Base):
     )
 
 
+    country = Column(
+        String(100)
+    )
+
+
     event_type = Column(
         String(50),
         nullable=False
+    )
+
+
+    reason = Column(
+        Text
     )
 
 
@@ -168,8 +174,13 @@ class AccessRequest(Base):
     )
 
 
-    reason = Column(
-        Text
+    telegram_message_id = Column(
+        Integer
+    )
+
+
+    notified_at = Column(
+        DateTime
     )
 
 
@@ -195,6 +206,7 @@ class AccessRequest(Base):
     )
 
 
+
 Index(
     "idx_access_ip",
     AccessRequest.source_ip
@@ -207,9 +219,7 @@ Index(
 )
 
 
-# =====================================
-# IP Whitelist
-# =====================================
+
 
 class Whitelist(Base):
 
@@ -226,8 +236,7 @@ class Whitelist(Base):
         Integer,
         ForeignKey(
             "servers.id"
-        ),
-        nullable=False
+        )
     )
 
 
@@ -244,7 +253,7 @@ class Whitelist(Base):
 
     permanent = Column(
         Boolean,
-        default=False
+        default=True
     )
 
 
@@ -266,9 +275,6 @@ class Whitelist(Base):
 
 
 
-# =====================================
-# Audit Logs
-# =====================================
 
 class AuditLog(Base):
 
@@ -290,8 +296,7 @@ class AuditLog(Base):
 
 
     action = Column(
-        String(100),
-        nullable=False
+        String(100)
     )
 
 

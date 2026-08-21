@@ -1,4 +1,4 @@
-from datetime import datetime
+import logging
 
 from fastapi import (
     APIRouter,
@@ -6,71 +6,81 @@ from fastapi import (
     HTTPException
 )
 
-from sqlalchemy import select
+from pydantic import BaseModel
 
 from database import async_session
+
 from models import (
-    Server,
-    AccessRequest
+    AccessRequest,
+    Server
 )
+
+from sqlalchemy import select
 
 from config import AGENT_SECRET
 
-from services.telegram import send_access_request
+
+logger = logging.getLogger(
+    "access-api"
+)
 
 
 router = APIRouter(
-    prefix="/api/v1/access",
-    tags=["access"]
+    prefix="/api/v1/access"
 )
+
+
+
+class AccessEvent(BaseModel):
+
+    server_id: int
+
+    username: str = "unknown"
+
+    source_ip: str
+
+    country: str = "Unknown"
+
+    event_type: str
+
+    reason: str | None = None
+
 
 
 @router.post("/event")
 async def access_event(
-    data: dict,
+
+    event: AccessEvent,
+
     x_agent_key: str = Header(None)
+
 ):
 
-    # Проверка ключа агента
+
     if x_agent_key != AGENT_SECRET:
 
         raise HTTPException(
             status_code=403,
-            detail="Invalid agent key"
+            detail="Invalid key"
         )
 
-
-    required_fields = [
-        "server_id",
-        "username",
-        "source_ip",
-        "event_type"
-    ]
-
-
-    for field in required_fields:
-
-        if field not in data:
-
-            raise HTTPException(
-                status_code=400,
-                detail=f"Missing field: {field}"
-            )
 
 
     async with async_session() as session:
 
 
-        # Ищем сервер
-
         result = await session.execute(
-            select(Server).where(
-                Server.id == data["server_id"]
+
+            select(Server)
+            .where(
+                Server.id == event.server_id
             )
+
         )
 
 
         server = result.scalar_one_or_none()
+
 
 
         if not server:
@@ -81,26 +91,22 @@ async def access_event(
             )
 
 
-        # Создаем запрос доступа
 
         request = AccessRequest(
 
-            server_id=server.id,
+            server_id=event.server_id,
 
-            username=data["username"],
+            username=event.username,
 
-            source_ip=data["source_ip"],
+            source_ip=event.source_ip,
 
-            event_type=data["event_type"],
+            country=event.country,
 
-            reason=data.get(
-                "reason",
-                "Unknown"
-            ),
+            event_type=event.event_type,
 
-            status="WAITING",
+            reason=event.reason,
 
-            created_at=datetime.utcnow()
+            status="WAITING"
 
         )
 
@@ -113,29 +119,17 @@ async def access_event(
 
 
 
-    # Отправка уведомления в Telegram
-
-    await send_access_request(
-
-        server_name=server.name,
-
-        username=request.username,
-
-        source_ip=request.source_ip,
-
-        event_type=request.event_type,
-
-        reason=request.reason,
-
-        request_id=request.id
-
-    )
+        logger.info(
+            "New access request %s from %s",
+            request.id,
+            request.source_ip
+        )
 
 
     return {
 
-        "status": "received",
+        "status":"received",
 
-        "request_id": request.id
+        "request_id":request.id
 
     }

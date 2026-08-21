@@ -2,25 +2,24 @@ import asyncio
 import logging
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("firewall")
 
 
 IPSET_MAP = {
-
     1: "wl_234",
-
     2: "wl_239",
-
-    3: "wl_251"
-
+    3: "wl_251",
 }
 
 
 IPSET_BIN = "/usr/sbin/ipset"
 
 
+IPSET_SAVE_FILE = "/etc/iptables/ipsets"
 
-async def _run_ipset(command: list):
+
+
+async def run_command(command):
 
     try:
 
@@ -40,16 +39,17 @@ async def _run_ipset(command: list):
 
         if process.returncode != 0:
 
-            error = stderr.decode().strip()
-
             logger.error(
-                f"ipset error: {error}"
+                "Command failed: %s %s",
+                command,
+                stderr.decode()
             )
 
             return False
 
 
         return True
+
 
 
     except Exception as e:
@@ -62,51 +62,124 @@ async def _run_ipset(command: list):
 
 
 
+async def save_ipsets():
+
+    try:
+
+        process = await asyncio.create_subprocess_exec(
+
+            IPSET_BIN,
+
+            "save",
+
+            stdout=asyncio.subprocess.PIPE
+
+        )
+
+
+        stdout, _ = await process.communicate()
+
+
+        if process.returncode != 0:
+
+            return False
+
+
+
+        with open(
+            IPSET_SAVE_FILE,
+            "wb"
+        ) as f:
+
+            f.write(stdout)
+
+
+
+        logger.info(
+            "ipset database saved"
+        )
+
+
+        return True
+
+
+
+    except Exception as e:
+
+        logger.exception(e)
+
+        return False
+
+
+
+
+
+def get_ipset(server_id):
+
+    return IPSET_MAP.get(
+        int(server_id)
+    )
+
+
+
+
+
 async def add_ip_to_firewall(
     server_id: int,
     ip: str
 ):
 
-    ipset_name = IPSET_MAP.get(
+
+    ipset = get_ipset(
         server_id
     )
 
 
-    if not ipset_name:
+    if not ipset:
 
         logger.error(
-            f"Unknown server id {server_id}"
+            "Unknown server id %s",
+            server_id
         )
 
         return False
 
 
 
-    command = [
 
-        IPSET_BIN,
+    result = await run_command(
 
-        "add",
+        [
 
-        ipset_name,
+            IPSET_BIN,
 
-        ip,
+            "add",
 
-        "-exist"
+            ipset,
 
-    ]
+            ip,
 
+            "-exist"
 
+        ]
 
-    result = await _run_ipset(
-        command
     )
+
 
 
     if result:
 
+        await save_ipsets()
+
+
         logger.info(
-            f"Firewall whitelist: {ip} -> {ipset_name}"
+
+            "Firewall whitelist added %s -> %s",
+
+            ip,
+
+            ipset
+
         )
 
 
@@ -116,61 +189,66 @@ async def add_ip_to_firewall(
 
 
 
+
 async def remove_ip_from_firewall(
-    server_id: int,
-    ip: str
+    server_id:int,
+    ip:str
 ):
 
-    ipset_name = IPSET_MAP.get(
+
+    ipset = get_ipset(
         server_id
     )
 
 
-    if not ipset_name:
-
-        logger.error(
-            f"Unknown server id {server_id}"
-        )
+    if not ipset:
 
         return False
 
 
 
-    command = [
+    result = await run_command(
 
-        IPSET_BIN,
+        [
 
-        "del",
+            IPSET_BIN,
 
-        ipset_name,
+            "del",
 
-        ip
+            ipset,
 
-    ]
+            ip
 
+        ]
 
-
-    result = await _run_ipset(
-        command
     )
 
 
-    if result:
+
+    # если уже удален
+    if not result:
 
         logger.info(
-            f"Firewall removed: {ip} -> {ipset_name}"
-        )
-
-    else:
-
-        # IP уже отсутствует = считаем удаленным
-
-        logger.info(
-            f"Firewall already clean: {ip}"
+            "IP already removed %s",
+            ip
         )
 
         return True
 
+
+
+    await save_ipsets()
+
+
+    logger.info(
+
+        "Firewall whitelist removed %s -> %s",
+
+        ip,
+
+        ipset
+
+    )
 
 
     return True

@@ -1,79 +1,134 @@
 import logging
 
-from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-
-from config import BOT_TOKEN, ADMIN_IDS
-
-
-logger = logging.getLogger(__name__)
-
-
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(
-        parse_mode=ParseMode.HTML
-    )
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
 )
 
 
-def access_keyboard(request_id: int):
+logger = logging.getLogger(
+    "telegram-service"
+)
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ APPROVE",
-                    callback_data=f"approve:{request_id}"
-                ),
-                InlineKeyboardButton(
-                    text="⛔ BLOCK",
-                    callback_data=f"block:{request_id}"
-                )
-            ]
-        ]
-    )
 
 
 async def send_access_request(
+
+    bot,
+
+    chat_id: int,
+
+    request_id: int,
+
     server_name: str,
-    username: str,
+
     source_ip: str,
-    event_type: str,
-    reason: str,
-    request_id: int
+
+    country: str
+
 ):
 
+
     text = (
-        "🚨 <b>New Access Request</b>\n\n"
+
+        "🚨 <b>RDP ACCESS REQUEST</b>\n\n"
+
         f"🖥 Server: <b>{server_name}</b>\n"
-        f"👤 User: <b>{username}</b>\n"
-        f"🌐 IP: <b>{source_ip}</b>\n\n"
-        f"⚠️ Event: <b>{event_type}</b>\n"
-        f"📌 Reason: <b>{reason}</b>\n\n"
-        f"ID: {request_id}"
+
+        f"🌐 IP: <code>{source_ip}</code>\n"
+
+        f"🌍 Country: <b>{country}</b>\n\n"
+
+        "⚠️ Status: "
+        "<b>NOT WHITELISTED</b>"
+
     )
 
 
-    keyboard = access_keyboard(
-        request_id
+
+    keyboard = InlineKeyboardMarkup(
+
+        inline_keyboard=[
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="✅ APPROVE",
+
+                    callback_data=f"approve:{request_id}"
+
+                ),
+
+
+                InlineKeyboardButton(
+
+                    text="⛔ BLOCK",
+
+                    callback_data=f"block:{request_id}"
+
+                )
+
+            ],
+
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="🗑 DELETE",
+
+                    callback_data=f"delete:{request_id}"
+
+                )
+
+            ]
+
+        ]
+
     )
 
 
-    for admin_id in ADMIN_IDS:
 
-        try:
+    try:
 
-            await bot.send_message(
-                chat_id=admin_id,
-                text=text,
-                reply_markup=keyboard
-            )
 
-        except Exception as e:
+        message = await bot.send_message(
 
-            logger.error(
-                f"Telegram send error: {e}"
-            )
+            chat_id=chat_id,
+
+            text=text,
+
+            reply_markup=keyboard
+
+        )
+
+
+        logger.info(
+
+            "Telegram notification sent: %s",
+
+            request_id
+
+        )
+
+
+        return message
+
+
+
+    except Exception as e:
+
+
+        logger.error(
+
+            "Telegram send error %s: %s",
+
+            request_id,
+
+            e
+
+        )
+
+
+        return None

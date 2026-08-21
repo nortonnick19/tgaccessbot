@@ -1,16 +1,14 @@
-from datetime import datetime
 import logging
+import subprocess
 
+from datetime import datetime, timedelta
 
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.types import CallbackQuery
 
-
-from sqlalchemy import select, delete
-
+from sqlalchemy import select
 
 from database import async_session
-
 
 from models import (
     AccessRequest,
@@ -20,190 +18,153 @@ from models import (
 )
 
 
-from services.firewall import (
-    add_ip_to_firewall,
-    remove_ip_from_firewall
-)
-
-
-
 router = Router()
 
 
-logger = logging.getLogger(__name__)
-
-
-
-
-
-@router.callback_query(
-    F.data.startswith("approve:")
+logger = logging.getLogger(
+    "access-handler"
 )
-async def approve_access(
-    callback: CallbackQuery
+
+
+WHITELIST_DAYS = 14
+
+
+
+# =====================================================
+# IPSET FUNCTIONS
+# =====================================================
+
+def add_ip_to_ipset(
+    ipset_name,
+    ip
 ):
 
-    request_id = int(
-        callback.data.split(":")[1]
-    )
+    try:
+
+        subprocess.run(
+
+            [
+                "ipset",
+                "add",
+                ipset_name,
+                ip,
+                "-exist"
+            ],
+
+            check=True,
+
+            capture_output=True
+
+        )
+
+
+        logger.info(
+            "Firewall whitelist: %s -> %s",
+            ip,
+            ipset_name
+        )
+
+
+        return True
+
+
+    except Exception as e:
+
+
+        logger.error(
+            "ipset add error: %s",
+            e
+        )
+
+
+        return False
+
+
+
+
+
+def remove_ip_from_ipset(
+    ipset_name,
+    ip
+):
+
+    try:
+
+        subprocess.run(
+
+            [
+                "ipset",
+                "del",
+                ipset_name,
+                ip
+            ],
+
+            stdout=subprocess.DEVNULL,
+
+            stderr=subprocess.DEVNULL
+
+        )
+
+
+        logger.info(
+            "Firewall removed: %s -> %s",
+            ip,
+            ipset_name
+        )
+
+
+    except Exception as e:
+
+
+        logger.error(
+            "ipset delete error: %s",
+            e
+        )
+
+
+
+
+
+# =====================================================
+# CALLBACK HANDLER
+# =====================================================
+
+@router.callback_query()
+async def access_buttons(
+
+    callback: CallbackQuery
+
+):
+
+
+    if not callback.data:
+
+        return
+
+
+
+    try:
+
+        action, request_id = callback.data.split(":")
+
+        request_id = int(request_id)
+
+
+    except Exception:
+
+
+        await callback.answer(
+            "Invalid request"
+        )
+
+        return
+
+
+
 
 
     async with async_session() as session:
 
-
-        result = await session.execute(
-
-            select(AccessRequest)
-            .where(
-                AccessRequest.id == request_id
-            )
-
-        )
-
-
-        request = result.scalar_one_or_none()
-
-
-        if not request:
-
-            await callback.answer(
-                "Request not found",
-                show_alert=True
-            )
-
-            return
-
-
-
-        if request.status != "WAITING":
-
-            await callback.answer(
-                "Already processed",
-                show_alert=True
-            )
-
-            return
-
-
-
-        request.status = "APPROVED"
-
-        request.approved_by = str(
-            callback.from_user.id
-        )
-
-        request.approved_at = datetime.utcnow()
-
-
-
-        whitelist = Whitelist(
-
-            server_id=request.server_id,
-
-            ip=request.source_ip,
-
-            username=request.username,
-
-            permanent=True
-
-        )
-
-
-        session.add(
-            whitelist
-        )
-
-
-
-        audit = AuditLog(
-
-            server_id=request.server_id,
-
-            action="APPROVE_ACCESS",
-
-            details=f"Added {request.source_ip}",
-
-            user=str(
-                callback.from_user.id
-            )
-
-        )
-
-
-        session.add(
-            audit
-        )
-
-
-        await session.commit()
-
-
-
-    firewall = await add_ip_to_firewall(
-
-        request.server_id,
-
-        request.source_ip
-
-    )
-
-
-
-    status = (
-
-        "✅ Firewall updated"
-
-        if firewall
-
-        else
-
-        "❌ Firewall failed"
-
-    )
-
-
-
-    await callback.message.edit_text(
-
-        callback.message.text
-
-        +
-
-        "\n\n"
-
-        +
-
-        "✅ <b>APPROVED</b>\n"
-
-        +
-
-        status
-
-    )
-
-
-    await callback.answer()
-
-
-
-
-
-
-
-@router.callback_query(
-    F.data.startswith("delete:")
-)
-async def delete_access(
-    callback: CallbackQuery
-):
-
-
-    request_id = int(
-        callback.data.split(":")[1]
-    )
-
-
-    async with async_session() as session:
 
 
         result = await session.execute(
@@ -217,106 +178,305 @@ async def delete_access(
         )
 
 
-        request = result.scalar_one_or_none()
+        request = (
+            result
+            .scalar_one_or_none()
+        )
+
 
 
         if not request:
 
+
             await callback.answer(
-                "Not found",
-                show_alert=True
+                "Request not found"
             )
 
             return
 
 
 
-        await session.execute(
 
-            delete(Whitelist)
+
+        server_result = await session.execute(
+
+            select(Server)
 
             .where(
-
-                Whitelist.server_id == request.server_id,
-
-                Whitelist.ip == request.source_ip
-
+                Server.id == request.server_id
             )
 
         )
 
 
+        server = (
+            server_result
+            .scalar_one_or_none()
+        )
 
-        request.status = "DELETED"
 
 
 
-        audit = AuditLog(
 
-            server_id=request.server_id,
+        # =============================================
+        # APPROVE
+        # =============================================
 
-            action="DELETE_ACCESS",
+        if action == "approve":
 
-            details=f"Removed {request.source_ip}",
 
-            user=str(
+
+            expires = (
+                datetime.utcnow()
+                +
+                timedelta(days=WHITELIST_DAYS)
+            )
+
+
+
+            request.status = "APPROVED"
+
+
+            request.approved_by = str(
                 callback.from_user.id
             )
 
-        )
+
+            request.approved_at = (
+                datetime.utcnow()
+            )
 
 
-        session.add(
-            audit
-        )
+
+            # Проверяем существующий IP
+
+            existing_result = await session.execute(
+
+                select(Whitelist)
+
+                .where(
+
+                    Whitelist.server_id ==
+                    request.server_id,
+
+                    Whitelist.ip ==
+                    request.source_ip
+
+                )
+
+            )
+
+
+            existing = (
+                existing_result
+                .scalar_one_or_none()
+            )
+
+
+
+            if existing:
+
+
+                existing.expires_at = expires
+
+                existing.username = (
+                    request.username
+                )
+
+
+                logger.info(
+                    "Whitelist renewed %s",
+                    request.source_ip
+                )
+
+
+            else:
+
+
+                whitelist = Whitelist(
+
+                    server_id=request.server_id,
+
+                    ip=request.source_ip,
+
+                    username=request.username,
+
+                    permanent=False,
+
+                    expires_at=expires
+
+                )
+
+
+                session.add(
+                    whitelist
+                )
+
+
+
+
+
+            # Firewall
+
+            if server and server.ipset_name:
+
+
+                add_ip_to_ipset(
+
+                    server.ipset_name,
+
+                    request.source_ip
+
+                )
+
+
+
+
+
+            log = AuditLog(
+
+                server_id=request.server_id,
+
+                action="APPROVE",
+
+                details=(
+
+                    f"{request.source_ip} "
+                    f"expires {expires}"
+
+                ),
+
+                user=str(
+                    callback.from_user.id
+                )
+
+            )
+
+
+            session.add(log)
+
+
+
+
+
+            await callback.message.edit_text(
+
+                callback.message.text
+
+                +
+
+                "\n\n✅ <b>APPROVED</b>\n"
+
+                +
+
+                f"⏳ Valid until: "
+                f"<b>{expires.strftime('%d.%m.%Y %H:%M')}</b>",
+
+                reply_markup=None
+
+            )
+
+
+
+
+
+
+
+        # =============================================
+        # BLOCK
+        # =============================================
+
+        elif action == "block":
+
+
+
+            request.status = "BLOCKED"
+
+
+
+            log = AuditLog(
+
+                server_id=request.server_id,
+
+                action="BLOCK",
+
+                details=request.source_ip,
+
+                user=str(
+                    callback.from_user.id
+                )
+
+            )
+
+
+            session.add(log)
+
+
+
+
+
+            await callback.message.edit_text(
+
+                callback.message.text
+
+                +
+
+                "\n\n⛔ <b>BLOCKED</b>",
+
+                reply_markup=None
+
+            )
+
+
+
+
+
+
+
+
+        # =============================================
+        # DELETE
+        # =============================================
+
+        elif action == "delete":
+
+
+
+            log = AuditLog(
+
+                server_id=request.server_id,
+
+                action="DELETE",
+
+                details=request.source_ip,
+
+                user=str(
+                    callback.from_user.id
+                )
+
+            )
+
+
+            session.add(log)
+
+
+
+            await session.delete(
+                request
+            )
+
+
+
+            await callback.message.delete()
+
+
+
 
 
         await session.commit()
 
 
 
-
-    firewall = await remove_ip_from_firewall(
-
-        request.server_id,
-
-        request.source_ip
-
+    await callback.answer(
+        "Done"
     )
-
-
-
-    status = (
-
-        "🛡 Firewall removed"
-
-        if firewall
-
-        else
-
-        "⚠ Firewall error"
-
-    )
-
-
-
-    await callback.message.edit_text(
-
-        callback.message.text
-
-        +
-
-        "\n\n"
-
-        +
-
-        "🗑 <b>DELETED</b>\n"
-
-        +
-
-        status
-
-    )
-
-
-    await callback.answer()

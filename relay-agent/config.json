@@ -1,0 +1,29 @@
+{
+    "api_url": "http://127.0.0.1:8000/api/v1/access/event",
+
+    "agent_key": "tgaccess_agent_2026_secure_key_8f72k",
+
+    "cooldown": 300,
+
+    "servers": {
+
+        "33234": {
+            "server_id": 1,
+            "name": "Server 234",
+            "ipset": "wl_234"
+        },
+
+        "33239": {
+            "server_id": 2,
+            "name": "Server 239",
+            "ipset": "wl_239"
+        },
+
+        "33251": {
+            "server_id": 3,
+            "name": "Server 251",
+            "ipset": "wl_251"
+        }
+
+    }
+}
